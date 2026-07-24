@@ -21,40 +21,107 @@ const hits = await mem.recall("what currency should I use?");
 // [{ content: "User prefers figures in GBP.", memory_type: "preference", similarity: 0.83, ... }]
 ```
 
-## Why this exists
+## Why I built this
 
-Most agent-memory tools hand you a hosted black box: you POST text, you GET
-text, and the retrieval logic, the schema, and your data all live somewhere you
-cannot see or tune. That is fine until recall quality matters and you need to
-know *why* a memory did or did not surface.
+I didn't set out to build a memory product. I built **Kern**, an autonomous
+agent that runs my actual life on a single Supabase Postgres instance: it reads
+my email, manages my calendar, ships and deploys its own code, and has done
+since April 2026. The limiting factor was never the model. It was memory. An
+agent that forgets what you told it yesterday, re-asks a question you answered
+three sessions ago, and confidently acts on stale facts is not an assistant.
+It is a goldfish with an API bill.
 
-This is the opposite. It is the memory layer as **Postgres you can read**. Every
-ranking decision is a SQL function you can open, profile, and change. It runs on
-Supabase because Supabase is just Postgres with pgvector, `pg_trgm`, and
-row-level security already in the box, which is exactly what a real memory system
-needs and exactly what the hosted tools hide from you.
+The hosted memory services want to solve this by sitting between your agent and
+its own memories: you POST text, you GET text back, and the schema, the ranking
+logic, and your data all live in someone else's cloud. That is fine right up
+until recall quality actually matters, and then you are debugging a black box
+through a support ticket. Even the self-hostable options mostly hand you a
+service to run and an API to trust.
 
-It was extracted from a working system, not written for a README. The schema and
-the recall function are lifted, close to verbatim, from **Kern**, an autonomous
-agent that has run one person's entire life on a single Supabase Postgres
-instance since April 2026: reading email, managing a calendar, shipping its own
-code, and remembering everything across sessions. The memory core you are looking
-at is the part that makes that continuity possible. The scars in the comments
-(why `updated_at` must not move on reads, why one function overload silently
-broke dedup for months) are real, and they are why the design is shaped the way
-it is.
+So I built the memory layer as **Postgres you can read**. It runs on Supabase
+because Supabase is just Postgres with pgvector, `pg_trgm`, and row-level
+security already in the box, which is exactly what a real memory system needs
+and exactly what the hosted tools hide from you. After months of it running a
+real life in production, 22,000+ memories deep, I extracted the core into this
+template. The scars in the comments (why `updated_at` must not move on reads,
+why one function overload silently broke dedup for months) are real, and they
+are why the design is shaped the way it is.
 
-## What you get
+## What this does that other memory systems don't
 
-| Capability | How |
-|---|---|
-| **Hybrid recall** | Vector cosine (pgvector/HNSW) and Postgres full-text search, fused with Reciprocal Rank Fusion so keyword-exact and semantically-near hits both surface. Degrades to pure vector when no query text is given. |
-| **Entity-grounded recall** | Names in the query (people, projects, tools) inject and lift memories tagged with those entities, so identity facts surface even when the wording does not match semantically or lexically. |
-| **Write-time dedup** | A ≥95% semantic near-duplicate of the same type updates in place instead of piling up. A `pg_trgm` pass separately catches "same template, changed values" snapshots that slip under the embedding threshold. |
-| **Temporal validity** | `valid_from` / `valid_until` plus a `superseded_by` chain. Facts evolve without deletion; `memory_history()` replays how a fact changed over time. |
-| **Typed memory + importance** | Nine memory types (fact, decision, event, preference, correction, pattern, learning, conversation, transcript). Corrections and preferences never decay in ranking; transcripts stay out of keyword search. |
-| **Gentle ranking blend** | Small, capped recency / importance / usage multipliers on top of RRF. Similarity returned to you stays pure cosine. Flip `use_blended` off for a clean RRF baseline when you A/B retrieval. |
-| **You own it** | One `schema.sql`. RLS templates included. No hosted dependency beyond Supabase and an embedding provider. |
+Most agent-memory layers are a vector database with a summariser in front.
+This is a different shape:
+
+- **Retrieval is a SQL function, not a service.** Every ranking decision lives
+  in one readable PL/pgSQL function you can open, `EXPLAIN`, profile, and tune.
+  When recall goes wrong, it is a debugging session, not a support ticket.
+- **Three recall lanes, not one.** Pure vector search misses exact names, IDs,
+  and rare keywords; pure keyword search misses paraphrase. This fuses vector,
+  full-text, and a third **entity lane** that injects memories about people,
+  projects, and tools named in the query even when neither of the other lanes
+  finds them. Identity facts stop falling through the cracks.
+- **Facts have a timeline, not just an embedding.** A `superseded_by` chain
+  plus `valid_from` / `valid_until` windows means facts evolve without
+  deletion, and `memory_history()` replays how one changed over time. Most
+  systems either overwrite (history lost) or append (contradictions pile up).
+- **Dedup happens at write time, twice.** A ≥95% semantic near-duplicate of the
+  same type updates in place instead of accumulating. A separate `pg_trgm` pass
+  catches "same template, changed values" snapshots that slip under the
+  embedding threshold. Your store stays clean without a compaction job.
+- **Memory types with teeth.** Nine types (fact, decision, preference,
+  correction, pattern, learning, event, conversation, transcript), and the
+  type changes behaviour: corrections and preferences never decay in ranking,
+  transcripts stay out of keyword search, dedup never collapses a `decision`
+  into a `fact`.
+- **Honest scores.** RRF plus small capped recency / importance / usage
+  factors decide the *order*, but the `similarity` returned to you is untouched
+  cosine, so it stays meaningful as a threshold. Flip `use_blended` off for a
+  clean RRF baseline when you A/B retrieval.
+- **Zero new infrastructure.** If you have a Supabase project, you already run
+  everything this needs. One schema file, RLS templates included, no hosted
+  dependency beyond an embedding provider.
+
+## How it works
+
+```mermaid
+flowchart TD
+    subgraph WRITE["store()"]
+        W1["content + type + tags"] --> W2["embed<br/>(text-embedding-3-small)"]
+        W2 --> W3{"semantic near-dup?<br/>&ge;95%, same type"}
+        W3 -- yes --> W4["update existing row"]
+        W3 -- no --> W5{"trigram snapshot dup?<br/>(pg_trgm)"}
+        W5 -- yes --> W4
+        W5 -- no --> W6["insert new row"]
+        W6 -.-> W7["entity extraction<br/>(async, fails open)"]
+    end
+
+    W4 --> DB
+    W6 --> DB
+    W7 -.-> DB
+
+    DB[("memories table<br/>pgvector HNSW &middot; tsvector GIN &middot; pg_trgm")]
+
+    subgraph READ["recall()"]
+        R1["query"] --> R2["embed query"]
+        R2 --> R3["search_memories()"]
+        R3 --> L1["vector lane<br/>HNSW cosine, top 50"]
+        R3 --> L2["keyword lane<br/>full-text, OR-combined"]
+        R3 --> L3["entity lane<br/>named-entity injection"]
+        L1 --> F["Reciprocal Rank Fusion<br/>1 / (k + rank), k = 60"]
+        L2 --> F
+        L3 --> F
+        F --> B["capped blend:<br/>recency &middot; importance &middot; usage"]
+        B --> OUT["ranked memories<br/>(pure cosine similarity attached)"]
+    end
+
+    DB --> L1
+    DB --> L2
+    DB --> L3
+```
+
+One table holds everything. Writes go through dedup before they land; reads
+fan out across three candidate lanes and get fused back into one ranked list.
+The full ranking walkthrough is in [How recall works](#how-recall-works).
 
 ## Install
 
