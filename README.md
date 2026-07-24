@@ -25,7 +25,7 @@ const hits = await mem.recall("what currency should I use?");
 
 I didn't set out to build a memory product primarily. When Anthropic banned OpenClaw usage through subscriptions I decided to just build my own agent/harness/OS and build it a proper database memory to see if I could create something better than what Claw/Hermes ship with. I created a fresh version of the memory system in isolation and have open sourced it. That is this repo :)
 
-Ok here's more detail on the memory (written by AI so forgive the tone
+Ok here's more detail on the memory (written by AI so forgive the tone):
 
 I built the memory layer as **Postgres you can read**. It runs on Supabase
 because Supabase is just Postgres with pgvector, `pg_trgm`, and row-level
@@ -123,9 +123,18 @@ The full ranking walkthrough is in [How recall works](#how-recall-works).
 
 ## Install
 
+**Prerequisites:** Node 18+, a Supabase project (free tier is fine), and an
+OpenAI API key. Embeddings use `text-embedding-3-small`; entity extraction uses
+`gpt-4o-mini`. Running the whole quickstart costs well under $0.01.
+
 ```bash
-npm install agent-memory-supabase @supabase/supabase-js
+git clone https://github.com/reescalder/agent-memory-supabase.git
+cd agent-memory-supabase
+npm install
 ```
+
+(Not on npm yet. The clone is the install; `src/client.js` is a single
+dependency-light file you can also just copy into your own project.)
 
 Then, once:
 
@@ -134,6 +143,11 @@ Then, once:
 2. (Recommended) Run [`sql/rls.sql`](sql/rls.sql) and pick a security posture.
 3. `cp .env.example .env` and fill in your Supabase URL, **service role** key,
    and OpenAI key.
+
+> **Heads up:** `dotenv` never overrides variables already exported in your
+> shell. If your terminal already has a `SUPABASE_URL` pointing at another
+> project, that is where the quickstart will write. It prints the target host
+> before touching anything, so check that line.
 
 ```bash
 node examples/quickstart.js
