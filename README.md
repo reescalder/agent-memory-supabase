@@ -23,7 +23,7 @@ const hits = await mem.recall("what currency should I use?");
 
 ## Why I built this
 
-I didn't set out to build a memory product. I built **Kern**, an autonomous
+I didn't set out to build a memory product primarily. When Anthropic banned OpenClaw usage through subscriptions
 agent that runs my actual life on a single Supabase Postgres instance: it reads
 my email, manages my calendar, ships and deploys its own code, and has done
 since April 2026. The limiting factor was never the model. It was memory. An
