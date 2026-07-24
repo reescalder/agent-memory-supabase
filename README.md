@@ -23,22 +23,11 @@ const hits = await mem.recall("what currency should I use?");
 
 ## Why I built this
 
-I didn't set out to build a memory product primarily. When Anthropic banned OpenClaw usage through subscriptions
-agent that runs my actual life on a single Supabase Postgres instance: it reads
-my email, manages my calendar, ships and deploys its own code, and has done
-since April 2026. The limiting factor was never the model. It was memory. An
-agent that forgets what you told it yesterday, re-asks a question you answered
-three sessions ago, and confidently acts on stale facts is not an assistant.
-It is a goldfish with an API bill.
+I didn't set out to build a memory product primarily. When Anthropic banned OpenClaw usage through subscriptions I decided to just build my own agent/harness/OS and build it a proper database memory to see if I could create something better than what Claw/Hermes ship with. I created a fresh version of the memory system in isolation and have open sourced it. That is this repo :)
 
-The hosted memory services want to solve this by sitting between your agent and
-its own memories: you POST text, you GET text back, and the schema, the ranking
-logic, and your data all live in someone else's cloud. That is fine right up
-until recall quality actually matters, and then you are debugging a black box
-through a support ticket. Even the self-hostable options mostly hand you a
-service to run and an API to trust.
+Ok here's more detail on the memory (written by AI so forgive the tone
 
-So I built the memory layer as **Postgres you can read**. It runs on Supabase
+I built the memory layer as **Postgres you can read**. It runs on Supabase
 because Supabase is just Postgres with pgvector, `pg_trgm`, and row-level
 security already in the box, which is exactly what a real memory system needs
 and exactly what the hosted tools hide from you. After months of it running a
