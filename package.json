@@ -1,0 +1,39 @@
+{
+  "name": "agent-memory-supabase",
+  "version": "0.1.0",
+  "description": "Production-shaped long-term memory for AI agents on Supabase Postgres: pgvector + full-text hybrid recall (RRF), entity grounding, temporal validity, trigram dedup. You own the SQL.",
+  "type": "module",
+  "main": "src/client.js",
+  "exports": {
+    ".": "./src/client.js"
+  },
+  "files": [
+    "src",
+    "sql",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "example": "node examples/quickstart.js"
+  },
+  "keywords": [
+    "supabase",
+    "postgres",
+    "pgvector",
+    "ai",
+    "agent",
+    "memory",
+    "rag",
+    "embeddings",
+    "vector-search",
+    "hybrid-search"
+  ],
+  "author": "Rees Calder <reescalder.com>",
+  "license": "MIT",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
