@@ -130,12 +130,18 @@ export class MemoryStore {
     const embedding = await this.embed(content);
 
     // 1) Semantic dedup: collapse near-identical memories of the same type.
-    const { data: dupes } = await this.db.rpc("find_similar_memory", {
+    const { data: dupes, error: dupeError } = await this.db.rpc("find_similar_memory", {
       query_embedding: embedding,
       similarity_threshold: dedupeThreshold,
       filter_project: project,
       filter_memory_type: memoryType,
     });
+    if (dupeError) {
+      throw new Error(
+        `store: dedup check failed: ${dupeError.message}. If this is a fresh ` +
+          `project, run sql/schema.sql in the Supabase SQL editor first.`,
+      );
+    }
     if (dupes && dupes.length > 0) {
       const dupe = dupes[0];
       const { data: updated } = await this.db
