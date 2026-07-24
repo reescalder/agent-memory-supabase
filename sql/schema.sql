@@ -211,6 +211,12 @@ BEGIN
     FROM text_ranked t
     JOIN memories m ON m.id = t.id
     WHERE t.id NOT IN (SELECT v.id FROM vector_ranked v)
+      -- The text lane rescues lexical matches the vector top-N missed, but
+      -- never rows semantically unrelated to the query. Without this floor,
+      -- RRF (rank-based, not score-based) hands a lone weak lexical match
+      -- (e.g. one shared stop-ish word) full text-lane credit and it can
+      -- outrank a genuinely relevant memory.
+      AND 1 - (m.embedding <=> query_embedding) >= min_similarity
   ),
   entity_ranked AS (
     SELECT
