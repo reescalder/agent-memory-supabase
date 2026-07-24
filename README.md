@@ -38,8 +38,17 @@ are why the design is shaped the way it is.
 
 ## What this does that other memory systems don't
 
-Most agent-memory layers are a vector database with a summariser in front.
-This is a different shape:
+Agent memory today mostly comes in two shapes. Frameworks like OpenClaw and
+Hermes ship **files-in-context**: curated markdown (a `MEMORY.md`, daily
+notes) loaded into the prompt, plus keyword search over past sessions.
+Readable and simple, and I ran that way for a while, but it is flat: no
+ranking, no dedup, no history, and it stops scaling the moment your memories
+outgrow what fits in a prompt. On the other side are **hosted memory
+services** (Mem0, Zep, Letta): real retrieval machinery, but running as a
+black box between your agent and its memories.
+
+This repo is a third shape: the retrieval machinery of the hosted services,
+implemented as plain Postgres you own and can read.
 
 - **Retrieval is a SQL function, not a service.** Every ranking decision lives
   in one readable PL/pgSQL function you can open, `EXPLAIN`, profile, and tune.
