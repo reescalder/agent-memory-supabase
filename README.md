@@ -139,8 +139,11 @@ dependency-light file you can also just copy into your own project.)
 Then, once:
 
 1. Run [`sql/schema.sql`](sql/schema.sql) in the Supabase SQL editor. It is safe
-   to re-run.
-2. (Recommended) Run [`sql/rls.sql`](sql/rls.sql) and pick a security posture.
+   to re-run. It leaves the table RLS-enabled and server-only, so nobody
+   holding your anon key can read or rewrite what your agent remembers.
+2. Only if you need browser access, run [`sql/rls.sql`](sql/rls.sql) and pick a
+   posture: per-user rows scoped to `auth.uid()`, or a deliberately public
+   read-only corpus.
 3. `cp .env.example .env` and fill in your Supabase URL, **service role** key,
    and OpenAI key.
 
@@ -207,9 +210,13 @@ await mem.history("retrieval");
 - **1536-dim embeddings** (OpenAI `text-embedding-3-small`) by default. To use a
   different model, change the `vector(1536)` width in `schema.sql` and the model
   in `src/client.js`; everything else is model-agnostic.
-- **Service role, server side.** The client uses the service_role key and is
-  meant to run on a server. For browser or multi-tenant use, enable RLS with an
-  owner column (see `sql/rls.sql`, posture B) and swap to a scoped key.
+- **Service role, server side, RLS on from the first run.** The client uses the
+  service_role key and is meant to run on a server; `schema.sql` enables RLS
+  with no policies so everything else is locked out by default. Supabase hands
+  the anon and authenticated roles SELECT/INSERT/UPDATE/DELETE on new public
+  tables, and your anon key ships in the browser bundle, so "RLS later" means
+  "anyone can rewrite my agent's memory today". For browser or multi-tenant
+  use, add the posture you want from `sql/rls.sql` rather than turning RLS off.
 - **Entity extraction is optional and non-blocking.** It uses a cheap model and
   fails open: a write never fails because entity extraction did. Pass
   `extractEntities: false` to the constructor to turn it off entirely.

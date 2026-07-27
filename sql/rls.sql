@@ -1,22 +1,24 @@
 -- ===========================================================================
--- Row Level Security (optional but recommended)
+-- Row Level Security postures
 -- ===========================================================================
--- Two common postures. Pick one; do not run both.
+-- schema.sql already ran `ALTER TABLE memories ENABLE ROW LEVEL SECURITY`, so
+-- out of the box the table is server-only: no policies means the anon and
+-- authenticated roles see nothing, and service_role (which bypasses RLS by
+-- design) keeps full access. That is posture A and it needs no extra SQL.
 --
--- The memories table holds whatever your agent remembers, which is often
--- sensitive. Never expose it to the anon/authenticated client roles without
--- policies. The service_role key bypasses RLS by design: server-side agents
--- using the service key are unaffected by everything below.
+-- Pick ONE of the postures below if you need something other than server-only.
+-- The memories table holds whatever your agent remembers, which is usually
+-- sensitive. Never hand the anon role write access to it: your anon key ships
+-- in the browser bundle, so anon write means anyone can rewrite what your
+-- agent believes.
 -- ===========================================================================
 
-ALTER TABLE memories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE memories ENABLE ROW LEVEL SECURITY;  -- idempotent, safe to re-run
 
 -- ---------------------------------------------------------------------------
--- Posture A: server-only (default, simplest).
--- No policies for anon/authenticated => those roles see nothing. Only the
--- service_role key (server side) can read/write. Use this when memory is
--- managed entirely by a backend agent, never touched from the browser.
--- (Just the ENABLE above is enough. Stop here.)
+-- Posture A: server-only (default, simplest). Nothing more to run.
+-- Memory is managed entirely by a backend agent holding the service_role key,
+-- never touched from the browser. schema.sql already put you here.
 -- ---------------------------------------------------------------------------
 
 -- ---------------------------------------------------------------------------
@@ -27,10 +29,47 @@ ALTER TABLE memories ENABLE ROW LEVEL SECURITY;
 -- CREATE INDEX IF NOT EXISTS idx_memories_owner ON memories (owner);
 --
 -- CREATE POLICY "owners read own memories" ON memories
---   FOR SELECT USING (auth.uid() = owner);
+--   FOR SELECT TO authenticated USING (auth.uid() = owner);
 -- CREATE POLICY "owners insert own memories" ON memories
---   FOR INSERT WITH CHECK (auth.uid() = owner);
+--   FOR INSERT TO authenticated WITH CHECK (auth.uid() = owner);
 -- CREATE POLICY "owners update own memories" ON memories
---   FOR UPDATE USING (auth.uid() = owner) WITH CHECK (auth.uid() = owner);
+--   FOR UPDATE TO authenticated USING (auth.uid() = owner) WITH CHECK (auth.uid() = owner);
 -- CREATE POLICY "owners delete own memories" ON memories
---   FOR DELETE USING (auth.uid() = owner);
+--   FOR DELETE TO authenticated USING (auth.uid() = owner);
+--
+-- Posture B keeps the default table grants for `authenticated` (which
+-- search_memories needs, see the note under posture C). RLS is what scopes
+-- the rows; the grants only decide which verbs are reachable at all.
+
+-- ---------------------------------------------------------------------------
+-- Posture C: public read-only corpus (anon key, browser reads, zero writes).
+-- For a deliberately public memory set: a docs bot, a demo, a "query my brain"
+-- site. Everyone reads every row; nobody but service_role can change one.
+-- Uncomment to use.
+-- ---------------------------------------------------------------------------
+-- CREATE POLICY "public read memories" ON memories
+--   FOR SELECT TO anon, authenticated USING (true);
+--
+-- -- Supabase grants anon/authenticated write privileges on new public tables
+-- -- by default. RLS with no write policy already blocks them, but revoking the
+-- -- grants outright means a future policy can never reopen the hole by
+-- -- accident.
+-- REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
+--   ON memories FROM anon, authenticated;
+--
+-- -- REQUIRED for posture C, and non-obvious. search_memories stamps read
+-- -- statistics through a `touched` CTE (UPDATE ... WHERE track_access).
+-- -- Postgres permission-checks every CTE in a statement at PLAN time, so the
+-- -- function demands UPDATE on memories even when you call it with the
+-- -- default track_access => false. Under posture C the caller is anon, which
+-- -- no longer holds UPDATE, so recall fails with 42501 "permission denied for
+-- -- table memories". Running the function as its owner fixes reads without
+-- -- handing anon a write grant. search_path is pinned because SECURITY
+-- -- DEFINER without a pinned search_path is a privilege-escalation risk.
+-- ALTER FUNCTION search_memories(
+--   vector, text, integer, text, text[], smallint, double precision,
+--   timestamptz, timestamptz, boolean, boolean, text[]
+-- ) SECURITY DEFINER SET search_path = public;
+--
+-- -- Verify with your anon key before you call it done: SELECT returns rows,
+-- -- INSERT returns 42501, and recall() still comes back with hits.

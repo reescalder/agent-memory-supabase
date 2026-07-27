@@ -549,3 +549,18 @@ BEGIN
   LIMIT max_results;
 END;
 $$;
+
+-- ---------------------------------------------------------------------------
+-- Secure by default
+-- ---------------------------------------------------------------------------
+-- On Supabase, a raw CREATE TABLE leaves RLS OFF while the anon and
+-- authenticated roles hold SELECT/INSERT/UPDATE/DELETE on the public schema by
+-- default. The two combined mean anyone holding your anon key (it ships in
+-- your frontend bundle, it is not a secret) can read AND rewrite your agent's
+-- memory. Enabling RLS with no policies closes that: the table becomes
+-- server-only. service_role bypasses RLS by design, so the client in this repo
+-- is unaffected.
+--
+-- Want browser or multi-tenant access? Do not undo this. Add the policies for
+-- the posture you want in sql/rls.sql.
+ALTER TABLE memories ENABLE ROW LEVEL SECURITY;
