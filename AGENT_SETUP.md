@@ -21,8 +21,8 @@ translate them to PowerShell.
    If the user has several Supabase projects, ask which one should hold the
    memory. A fresh free-tier project is fine.
 2. **An OpenAI API key** for embeddings (`text-embedding-3-small`, fractions of
-   a cent per thousand memories). Use `$OPENAI_API_KEY` if it is already set.
-   Otherwise ask the user for it.
+   a cent per thousand memories). The user pastes it into a local file in
+   step 3, so you never need to see it.
 3. **The project's secret key.** In the Supabase dashboard: Project Settings,
    API Keys. Prefer the new `sb_secret_...` key; the legacy `service_role` key
    also works. The Supabase MCP deliberately does not expose this key, and it
@@ -70,23 +70,26 @@ URL is the `SUPABASE_URL` for step 3.
 ### 3. Configure and register the memory MCP server
 
 The server reads its keys from `~/agent-memory-supabase/.env` (git-ignored).
-Create it with the project URL from step 2, and the OpenAI key if it is already
-in the environment:
+Create it and fill in the project URL from step 2 (the URL is not a secret):
 
 ```bash
 cd ~/agent-memory-supabase
 cp -n .env.example .env
-sed -i.bak "s#^SUPABASE_URL=.*#SUPABASE_URL=https://YOUR-PROJECT.supabase.co#" .env
-[ -n "$OPENAI_API_KEY" ] && sed -i.bak "s#^OPENAI_API_KEY=.*#OPENAI_API_KEY=$OPENAI_API_KEY#" .env
-rm -f .env.bak
+PROJECT_URL="https://YOUR-PROJECT.supabase.co"   # the URL from step 2
+sed -i.bak "s#^SUPABASE_URL=.*#SUPABASE_URL=$PROJECT_URL#" .env && rm -f .env.bak
 ```
 
+If your environment will not let you create or edit `.env`, ask the user to do
+it: copy `.env.example` to `.env` and set the `SUPABASE_URL` line.
+
 Then stop and ask the user to open `~/agent-memory-supabase/.env` in their
-editor and paste the secret key from prerequisite 3 on the
-`SUPABASE_SERVICE_ROLE_KEY=` line (and the OpenAI key, if it was not in the
-environment). Wait for them to confirm before continuing. If the user already
-gave you the keys in a file or env var, write them into `.env` the same way
-instead, without printing them.
+editor, paste two keys and save:
+
+- the secret key from prerequisite 3, on the `SUPABASE_SERVICE_ROLE_KEY=` line
+- their OpenAI key, on the `OPENAI_API_KEY=` line
+
+Wait for them to confirm before continuing. Keys typed by the user into their
+own editor never pass through the chat or your tool calls.
 
 Check every value is filled in, without showing any of them:
 
