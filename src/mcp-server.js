@@ -3,7 +3,8 @@
 // Agent Memory on Supabase: MCP server (stdio)
 // ===========================================================================
 // Gives Claude (or any MCP client) long-term memory backed by your own
-// Supabase project. Configure with environment variables:
+// Supabase project. Configure with environment variables, or put them in a
+// .env file at the repo root (env vars passed by the MCP client win):
 //
 //   SUPABASE_URL               https://YOUR-PROJECT.supabase.co
 //   SUPABASE_SERVICE_ROLE_KEY  service_role or secret key (server-side only)
@@ -17,17 +18,24 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import dotenv from "dotenv";
 import { MemoryStore } from "./client.js";
 import { registerMemoryTools, SERVER_INSTRUCTIONS } from "./mcp-tools.js";
 
 const REQUIRED = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "OPENAI_API_KEY"];
+const ENV_FILE = fileURLToPath(new URL("../.env", import.meta.url));
+
+// Resolved next to the code, not the client's cwd, so it works wherever
+// Claude launches the server from. quiet: dotenv must never write to stdout.
+dotenv.config({ path: ENV_FILE, quiet: true });
 
 function loadConfig(env) {
   const missing = REQUIRED.filter((k) => !env[k]);
   if (missing.length) {
     console.error(
       `agent-memory-supabase: missing ${missing.join(", ")}. ` +
-        `Pass them as env vars, e.g. claude mcp add memory -e SUPABASE_URL=... -- node src/mcp-server.js`,
+        `Set them in ${ENV_FILE} or pass them as env vars from your MCP client.`,
     );
     process.exit(1);
   }

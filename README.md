@@ -121,9 +121,38 @@ One table holds everything. Writes go through dedup before they land; reads
 fan out across three candidate lanes and get fused back into one ranked list.
 The full ranking walkthrough is in [How recall works](#how-recall-works).
 
+## Use it with Claude
+
+The repo ships an MCP server, so Claude Code (or any MCP client) can use the
+memory directly through five tools: `memory_recall`, `memory_store`,
+`memory_timeline`, `memory_history` and `memory_forget`. The server also tells
+the model when to recall and when to store, so there is no prompt to write.
+
+**The one-prompt install.** Connect the official Supabase MCP to Claude Code
+(`claude mcp add --transport http supabase https://mcp.supabase.com/mcp`, then
+`/mcp` to log in), and say:
+
+> Give yourself long-term memory: follow AGENT_SETUP.md in
+> https://github.com/reescalder/agent-memory-supabase
+
+Claude clones the repo, applies the schema to your project, registers the
+memory server and tells you to restart. [`AGENT_SETUP.md`](AGENT_SETUP.md) is
+the runbook it follows, and it is short enough to read yourself first.
+
+**By hand.** Do the [Install](#install) steps below (the server reads the same
+`.env`), then:
+
+```bash
+claude mcp add memory --scope user -- node /absolute/path/to/agent-memory-supabase/src/mcp-server.js
+```
+
+Env vars passed with `claude mcp add -e KEY=value` override `.env`. Optional:
+`MEMORY_PROJECT` sets a default namespace for new memories, and
+`MEMORY_EXTRACT_ENTITIES=false` skips the entity-extraction call.
+
 ## Install
 
-**Prerequisites:** Node 18+, a Supabase project (free tier is fine), and an
+**Prerequisites:** Node 22+, a Supabase project (free tier is fine), and an
 OpenAI API key. Embeddings use `text-embedding-3-small`; entity extraction uses
 `gpt-4o-mini`. Running the whole quickstart costs well under $0.01.
 
@@ -203,6 +232,9 @@ await mem.timeline({ project: "myapp", limit: 20 });
 
 // How a fact evolved over time (supersedes chain + validity windows).
 await mem.history("retrieval");
+
+// Forget: soft delete, the row stays for provenance but drops out of recall.
+await mem.forget("uuid-of-memory");
 ```
 
 ## Design choices worth knowing
@@ -229,8 +261,8 @@ await mem.history("retrieval");
 - Optional cross-encoder reranker hook (the production system uses one; the
   template ships without it to stay dependency-light).
 - Python client.
-- Packaging as a Supabase Edge Function and as an MCP server, so any
-  MCP-speaking agent gets memory with zero glue.
+- Packaging as a Supabase Edge Function, so the MCP server can run remotely
+  instead of on your machine.
 
 ## License
 

@@ -2,90 +2,130 @@
 
 This file is written for an AI coding agent (Claude Code or similar). A user
 pointed you here because they want you to have persistent memory backed by
-their own Supabase project. Follow these steps in order. Tell the user what you
-are doing as you go, and stop to ask whenever a step says to.
+their own Supabase project. Follow these steps in order and tell the user what
+you are doing as you go. Commands are for macOS and Linux shells; on Windows,
+translate them to PowerShell.
 
 ## What you need before starting
 
 1. **Database access to the user's Supabase project.** The easiest route is the
-   official Supabase MCP server. If you have tools like `apply_migration` and
-   `execute_sql`, you are set. If not, tell the user to connect it and restart
-   you:
+   official Supabase MCP server. If you have its tools (`apply_migration`,
+   `execute_sql`, `get_project_url`), you are set. If not, stop and tell the
+   user to run this, restart Claude Code, then type `/mcp` and log in to
+   Supabase:
 
    ```bash
    claude mcp add --transport http supabase https://mcp.supabase.com/mcp
    ```
 
-   then run `/mcp` in Claude Code to log in. If they have several Supabase
-   projects, ask which one holds the memory. A fresh free-tier project is fine.
+   If the user has several Supabase projects, ask which one should hold the
+   memory. A fresh free-tier project is fine.
 2. **An OpenAI API key** for embeddings (`text-embedding-3-small`, fractions of
-   a cent per thousand memories). Use `$OPENAI_API_KEY` if it is already set in
-   the environment. Otherwise ask the user for it.
-3. **The project's service role key** (Supabase dashboard, Project Settings,
-   API Keys: the legacy `service_role` key or a new `sb_secret_...` key both
-   work). The Supabase MCP does not expose this key, so ask the user to paste
-   it. It bypasses row-level security: it must only ever live in their local
-   MCP config, never in a repo, a frontend or a chat summary.
-4. Node 18 or later and `git`.
+   a cent per thousand memories). Use `$OPENAI_API_KEY` if it is already set.
+   Otherwise ask the user for it.
+3. **The project's secret key.** In the Supabase dashboard: Project Settings,
+   API Keys. Prefer the new `sb_secret_...` key; the legacy `service_role` key
+   also works. The Supabase MCP deliberately does not expose this key, and it
+   bypasses row-level security, so it should never pass through the chat. In
+   step 3 the user pastes it into a local file themselves.
+4. Node 22 or later (`node --version`) and `git`.
+
+**Keys stay off screen.** Users often record this. Never print a key, never
+`cat` the `.env` file, and never put a key literally into a command you show.
 
 ## Steps
 
 ### 1. Get the code
 
 ```bash
-git clone https://github.com/reescalder/agent-memory-supabase.git ~/agent-memory-supabase \
-  || git -C ~/agent-memory-supabase pull
+if [ -d ~/agent-memory-supabase ]; then
+  git -C ~/agent-memory-supabase pull
+else
+  git clone https://github.com/reescalder/agent-memory-supabase.git ~/agent-memory-supabase
+fi
 npm install --prefix ~/agent-memory-supabase
 ```
 
 ### 2. Create the schema
 
-Read `~/agent-memory-supabase/sql/schema.sql` and apply the whole file as one
-migration named `agent_memory_schema` (Supabase MCP: `apply_migration`). It is
-idempotent, so re-running it on a project that already has it is safe. It
-enables `vector` and `pg_trgm`, creates one `memories` table plus its search
-functions, and turns row-level security on so the table is server-only.
+Apply the full contents of `~/agent-memory-supabase/sql/schema.sql` as one
+migration named `agent_memory_schema`: pass the file's text as the `query`
+argument of the Supabase MCP's `apply_migration` tool. There is no need to
+summarise the SQL for the user. It is idempotent, so re-running it on a project
+that already has it is safe. It enables `vector` and `pg_trgm`, creates one
+`memories` table plus its search functions, and turns row-level security on so
+the table is server-only.
 
-Verify before moving on (`execute_sql`):
+Verify with `execute_sql`:
 
 ```sql
-select count(*) as memories,
-       (select relrowsecurity from pg_class where relname = 'memories') as rls_on,
+select (select relrowsecurity from pg_class where oid = 'public.memories'::regclass) as rls_on,
        (select count(*) from pg_proc where proname in
-         ('search_memories','find_similar_memory','memory_timeline','memory_history')) as functions
-from memories;
+         ('search_memories','find_similar_memory','memory_timeline','memory_history')) as functions;
 ```
 
-Expect `rls_on = true` and `functions = 4`. Get the project URL with
-`get_project_url`.
+Expect `rls_on = true` and `functions = 4`. Then call `get_project_url`: that
+URL is the `SUPABASE_URL` for step 3.
 
-### 3. Register the memory MCP server
+### 3. Configure and register the memory MCP server
 
-Use an absolute path. Substitute the real values; never echo the keys back to
-the user.
+The server reads its keys from `~/agent-memory-supabase/.env` (git-ignored).
+Create it with the project URL from step 2, and the OpenAI key if it is already
+in the environment:
 
 ```bash
-claude mcp add memory --scope user \
-  -e SUPABASE_URL=https://YOUR-PROJECT.supabase.co \
-  -e SUPABASE_SERVICE_ROLE_KEY=YOUR-SERVICE-ROLE-KEY \
-  -e OPENAI_API_KEY=YOUR-OPENAI-KEY \
-  -- node "$HOME/agent-memory-supabase/src/mcp-server.js"
+cd ~/agent-memory-supabase
+cp -n .env.example .env
+sed -i.bak "s#^SUPABASE_URL=.*#SUPABASE_URL=https://YOUR-PROJECT.supabase.co#" .env
+[ -n "$OPENAI_API_KEY" ] && sed -i.bak "s#^OPENAI_API_KEY=.*#OPENAI_API_KEY=$OPENAI_API_KEY#" .env
+rm -f .env.bak
+```
+
+Then stop and ask the user to open `~/agent-memory-supabase/.env` in their
+editor and paste the secret key from prerequisite 3 on the
+`SUPABASE_SERVICE_ROLE_KEY=` line (and the OpenAI key, if it was not in the
+environment). Wait for them to confirm before continuing. If the user already
+gave you the keys in a file or env var, write them into `.env` the same way
+instead, without printing them.
+
+Check every value is filled in, without showing any of them:
+
+```bash
+grep -cE '^(SUPABASE_URL|SUPABASE_SERVICE_ROLE_KEY|OPENAI_API_KEY)=.+' ~/agent-memory-supabase/.env
+grep -cE 'YOUR-PROJECT|your-service-role-key|sk-\.\.\.' ~/agent-memory-supabase/.env
+```
+
+Expect `3`, then `0`. Now register the server:
+
+```bash
+claude mcp add memory --scope user -- node "$HOME/agent-memory-supabase/src/mcp-server.js"
 ```
 
 `--scope user` makes the memory available in every project on this machine.
-Then check it connects:
+Check it:
 
 ```bash
 claude mcp list
 ```
 
-`memory` should show as connected. If it fails, run the same `node` command
-with the same env vars by hand: the server prints a readable error to stderr.
+After a few seconds of `Checking MCP server health…`, the `memory` line should
+end in `✔ Connected`. If it fails, run the server by hand:
+`node ~/agent-memory-supabase/src/mcp-server.js`. A healthy server
+prints `agent-memory-supabase <version>: connected to <your-project>.supabase.co`
+to stderr and then waits for input (press Ctrl-C). A broken one prints what is
+missing or wrong.
 
 ### 4. Finish
 
-Tell the user to restart Claude Code so the `memory_*` tools load. From the
-next session you will have:
+The memory tools load in the next session, not this one, so you cannot test
+them yet. Tell the user:
+
+- Setup is done. Quit Claude Code and start it again (`claude`) to load memory.
+- Then try it: tell Claude something worth remembering, open another new
+  session, and ask about it.
+
+From the next session you will have these tools, and the server tells you when
+to use them at connect time, so no extra prompt setup is needed:
 
 | Tool | Use it to |
 |------|-----------|
@@ -93,8 +133,7 @@ next session you will have:
 | `memory_store` | save a preference, decision, correction or fact |
 | `memory_timeline` | list recent memories |
 | `memory_history` | see how facts about one entity changed |
-| `memory_forget` | retire a memory by id |
+| `memory_forget` | retire a memory by id (soft delete, the row is kept) |
 
-The server tells you when to use these at connect time, so no extra prompt
-setup is needed. Suggest a first test: in the new session, tell you something
-worth remembering, then open another new session and ask about it.
+To uninstall: `claude mcp remove memory --scope user`. The data stays in the
+user's Supabase project until they drop the `memories` table.
