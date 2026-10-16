@@ -243,6 +243,24 @@ export class MemoryStore {
   }
 
   // -------------------------------------------------------------------------
+  // Forget a memory. Soft delete: the row stays for provenance but drops out
+  // of recall, timeline and dedup. Returns the forgotten row, or null if no
+  // active memory had that id.
+  // -------------------------------------------------------------------------
+  async forget(id) {
+    if (!id) throw new Error("forget: id is required");
+    const { data, error } = await this.db
+      .from("memories")
+      .update({ active: false, valid_until: new Date().toISOString() })
+      .eq("id", id)
+      .eq("active", true)
+      .select("id, content, memory_type")
+      .maybeSingle();
+    if (error) throw new Error(`forget failed: ${error.message}`);
+    return data;
+  }
+
+  // -------------------------------------------------------------------------
   // Convenience: how facts about an entity evolved over time.
   // -------------------------------------------------------------------------
   async history(entityQuery, { project = null, limit = 20 } = {}) {
